@@ -215,6 +215,10 @@
         <span>🎙️ Mic</span>
         <select id="selInputDevice"><option value="">System Default</option></select>
       </div>
+      <div class="device-row" id="outputDeviceRow" style="display:none">
+        <span>🔊 Monitor Output</span>
+        <select id="selOutputDevice"><option value="">System Default</option></select>
+      </div>
       <label class="check-row"><input type="checkbox" id="cEchoCancel"> Browser echo cancellation (enable if not using headphones)</label>
       <button class="btn btn-primary" id="btnMicToggle">🎙 Enable Microphone</button>
 
@@ -418,6 +422,8 @@
   const btnYtMute     = $('btnYtMute');
 
   const selInputDevice = $('selInputDevice');
+  const selOutputDevice = $('selOutputDevice');
+  const outputDeviceRow = $('outputDeviceRow');
   const cEchoCancel    = $('cEchoCancel');
   const btnMicToggle   = $('btnMicToggle');
   const micControls    = $('micControls');
@@ -846,17 +852,37 @@ registerProcessor('noise-gate', NoiseGate);
       }).join('');
     sel.value = list.some(d => d.deviceId === prevValue) ? prevValue : '';
   }
+  // setSinkId (choosing which output device the monitored/effected voice plays through)
+  // is a Chromium-only API — Safari and Firefox have no way to redirect AudioContext
+  // output, so the picker only appears where it can actually do something.
+  const outputSinkSupported = typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+  if (outputSinkSupported) outputDeviceRow.style.display = 'flex';
+
   async function refreshDeviceLists() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       populateDeviceSelect(selInputDevice, devices, 'audioinput', 'Microphone');
+      if (outputSinkSupported) populateDeviceSelect(selOutputDevice, devices, 'audiooutput', 'Speaker');
     } catch(_) {}
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener('devicechange', refreshDeviceLists);
   }
   refreshDeviceLists();
+
+  if (outputSinkSupported) {
+    selOutputDevice.addEventListener('change', async () => {
+      if (!ctx) return; // applied on mic start instead if not running yet
+      try {
+        await ctx.setSinkId(selOutputDevice.value);
+        setMicStatus('Monitor output switched.', 'ok');
+        setTimeout(() => setMicStatus(''), 1500);
+      } catch(e) {
+        setMicStatus('Could not switch output device: ' + e.message, 'err');
+      }
+    });
+  }
 
   async function startMic() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -884,6 +910,9 @@ registerProcessor('noise-gate', NoiseGate);
     refreshDeviceLists();
 
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    if (outputSinkSupported && selOutputDevice.value) {
+      try { await ctx.setSinkId(selOutputDevice.value); } catch(_) {}
+    }
     micSrc = ctx.createMediaStreamSource(micStream);
     gainNode = ctx.createGain(); gainNode.gain.value = val('sInputGain') / 100;
     micSrc.connect(gainNode);
