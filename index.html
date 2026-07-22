@@ -215,9 +215,10 @@
         <span>🎙️ Mic</span>
         <select id="selInputDevice"><option value="">System Default</option></select>
       </div>
-      <div class="device-row" id="outputDeviceRow" style="display:none">
+      <div class="device-row" id="outputDeviceRow">
         <span>🔊 Monitor Output</span>
         <select id="selOutputDevice"><option value="">System Default</option></select>
+        <span id="outputUnsupportedNote" style="display:none;color:var(--muted);font-style:italic">Not supported in this browser (Chrome/Edge only) — your voice plays through the system default output.</span>
       </div>
       <label class="check-row"><input type="checkbox" id="cEchoCancel"> Browser echo cancellation (enable if not using headphones)</label>
       <button class="btn btn-primary" id="btnMicToggle">🎙 Enable Microphone</button>
@@ -854,9 +855,13 @@ registerProcessor('noise-gate', NoiseGate);
   }
   // setSinkId (choosing which output device the monitored/effected voice plays through)
   // is a Chromium-only API — Safari and Firefox have no way to redirect AudioContext
-  // output, so the picker only appears where it can actually do something.
+  // output. Rather than silently hiding the whole row (indistinguishable from a bug),
+  // show why the picker itself isn't usable here.
   const outputSinkSupported = typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
-  if (outputSinkSupported) outputDeviceRow.style.display = 'flex';
+  if (!outputSinkSupported) {
+    selOutputDevice.style.display = 'none';
+    $('outputUnsupportedNote').style.display = 'inline';
+  }
 
   async function refreshDeviceLists() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
