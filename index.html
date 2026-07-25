@@ -119,6 +119,22 @@
     .btn-monitor.bypass-on { background: rgba(245,158,11,.15); border-color: var(--amber); color: var(--amber); }
     .btn-monitor:disabled { opacity: .4; cursor: not-allowed; }
 
+    /* Lyrics */
+    .lyrics-section { display: none; }
+    .lyrics-section.show { display: block; }
+    .lyrics-edit { display: none; width: 100%; min-height: 160px; margin-top: 10px;
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; font-size: .88rem; line-height: 1.6;
+      font-family: inherit; resize: vertical; }
+    .lyrics-edit.show { display: block; }
+    .lyrics-display { display: none; margin-top: 10px; max-height: 320px; overflow-y: auto;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 18px; font-size: 1.05rem; line-height: 1.9; white-space: pre-wrap;
+      scroll-behavior: auto; }
+    .lyrics-display.show { display: block; }
+    .lyrics-display:empty::before { content: 'No lyrics yet — click Edit to paste some.';
+      color: var(--muted); font-style: italic; font-size: .85rem; }
+
     /* Effects */
     .fx-section { display: none; }
     .fx-section.show { display: block; }
@@ -197,6 +213,7 @@
     <div class="yt-player-box"><div id="ytPlayer"></div></div>
     <div class="yt-now-row">
       <div class="yt-now-playing" id="ytNowPlaying"></div>
+      <button class="btn" id="btnToggleLyrics">📝 Lyrics</button>
       <button class="btn" id="btnClosePlayer">✕ Close</button>
     </div>
     <div class="mic-row" style="margin-top:8px">
@@ -206,6 +223,23 @@
       <button class="btn-monitor" id="btnYtMute" title="Mute the backing track">🔊</button>
     </div>
   </div>
+
+  <!-- Lyrics -->
+  <section class="lyrics-section" id="lyricsSection">
+    <h2>Lyrics</h2>
+    <div class="panel">
+      <div class="mic-row">
+        <button class="btn" id="btnLyricsEditToggle">✏️ Edit</button>
+        <div class="sl-row" style="flex:1;min-width:160px">
+          <span class="sl-label" style="width:auto">Scroll Speed</span>
+          <input type="range" class="sl" id="sLyricsSpeed" min="25" max="200" value="100">
+          <span class="sl-val" id="vLyricsSpeed">100%</span>
+        </div>
+      </div>
+      <textarea id="lyricsEdit" class="lyrics-edit" placeholder="Paste this song's lyrics here — only stored in your browser, never sent anywhere."></textarea>
+      <div id="lyricsDisplay" class="lyrics-display"></div>
+    </div>
+  </section>
 
   <!-- Mic -->
   <section>
@@ -422,6 +456,14 @@
   const vYtVolume     = $('vYtVolume');
   const btnYtMute     = $('btnYtMute');
 
+  const btnToggleLyrics    = $('btnToggleLyrics');
+  const lyricsSection      = $('lyricsSection');
+  const btnLyricsEditToggle = $('btnLyricsEditToggle');
+  const sLyricsSpeed       = $('sLyricsSpeed');
+  const vLyricsSpeed       = $('vLyricsSpeed');
+  const lyricsEdit         = $('lyricsEdit');
+  const lyricsDisplay      = $('lyricsDisplay');
+
   const selInputDevice = $('selInputDevice');
   const selOutputDevice = $('selOutputDevice');
   const outputDeviceRow = $('outputDeviceRow');
@@ -531,6 +573,7 @@
   // ── YouTube IFrame Player ────────────────────────────────────────────────
   let ytApiReady = false;
   let ytPlayer = null;
+  let currentVideoId = null;
   window.onYouTubeIframeAPIReady = function() { ytApiReady = true; };
   (function loadYtApi() {
     const s = document.createElement('script');
@@ -553,6 +596,7 @@
     ytPlayerWrap.classList.add('show');
     ytNowPlaying.textContent = title || '';
     ytPlayerWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (currentVideoId !== videoId) { currentVideoId = videoId; loadLyricsForCurrentVideo(); }
     if (!ytApiReady || typeof YT === 'undefined' || !YT.Player) {
       setTimeout(() => loadVideo(videoId, title), 300);
       return;
@@ -626,6 +670,92 @@
     if (ytPlayer) { try { ytMuted ? ytPlayer.mute() : ytPlayer.unMute(); } catch(_) {} }
     try { localStorage.setItem(YT_MUTED_KEY, ytMuted ? '1' : '0'); } catch(_) {}
   });
+
+  // ── Lyrics ───────────────────────────────────────────────────────────────
+  // The app never sources or hosts lyrics itself — only what the user pastes in,
+  // keyed by video ID, stored purely client-side. Same reasoning as the "no
+  // recording" decision: nothing here the app couldn't legally have.
+  const LYRICS_KEY = 'ks_lyrics_v1';
+  let lyricsEditing = false;
+  let lyricsScrollRaf = null;
+  let lyricsUserPaused = false;
+  let lyricsUserPauseTimer = null;
+
+  function loadLyricsStore() { try { return JSON.parse(localStorage.getItem(LYRICS_KEY)) || {}; } catch(_) { return {}; } }
+  function saveLyricsStore(store) { try { localStorage.setItem(LYRICS_KEY, JSON.stringify(store)); } catch(_) {} }
+
+  function loadLyricsForCurrentVideo() {
+    const store = loadLyricsStore();
+    const text = (currentVideoId && store[currentVideoId]) || '';
+    lyricsEdit.value = text;
+    lyricsDisplay.textContent = text;
+    setLyricsEditing(!text); // empty song → jump straight to Edit; otherwise show it
+  }
+
+  function setLyricsEditing(editing) {
+    lyricsEditing = editing;
+    lyricsEdit.classList.toggle('show', editing);
+    lyricsDisplay.classList.toggle('show', !editing);
+    btnLyricsEditToggle.textContent = editing ? '✓ Done' : '✏️ Edit';
+    if (!editing) ensureLyricsScrollLoop();
+  }
+
+  btnToggleLyrics.addEventListener('click', () => { lyricsSection.classList.toggle('show'); ensureLyricsScrollLoop(); });
+
+  btnLyricsEditToggle.addEventListener('click', () => {
+    if (lyricsEditing) {
+      // Leaving Edit: persist and reflect into the display pane.
+      const text = lyricsEdit.value;
+      lyricsDisplay.textContent = text;
+      if (currentVideoId) {
+        const store = loadLyricsStore();
+        if (text.trim()) store[currentVideoId] = text; else delete store[currentVideoId];
+        saveLyricsStore(store);
+      }
+    }
+    setLyricsEditing(!lyricsEditing);
+  });
+
+  vLyricsSpeed.textContent = `${sLyricsSpeed.value}%`;
+  sLyricsSpeed.addEventListener('input', () => { vLyricsSpeed.textContent = `${sLyricsSpeed.value}%`; });
+
+  // A real 'scroll' event also fires for our own programmatic scrollTop writes below,
+  // so it can't be used to detect user intent without instantly re-pausing itself.
+  // 'wheel'/'touchstart' only fire for genuine user input, so those are the signal.
+  function pauseLyricsAutoScroll() {
+    lyricsUserPaused = true;
+    clearTimeout(lyricsUserPauseTimer);
+    lyricsUserPauseTimer = setTimeout(() => { lyricsUserPaused = false; }, 4000);
+  }
+  lyricsDisplay.addEventListener('wheel', pauseLyricsAutoScroll, { passive: true });
+  lyricsDisplay.addEventListener('touchstart', pauseLyricsAutoScroll, { passive: true });
+
+  // Self-terminating rAF loop, same pattern as tickLevel(): bails out (and lets
+  // callers re-arm it via ensureLyricsScrollLoop) once none of its preconditions hold.
+  function lyricsScrollTick() {
+    if (!ytPlayer || lyricsEditing || !lyricsSection.classList.contains('show')) { lyricsScrollRaf = null; return; }
+    if (!lyricsUserPaused) {
+      try {
+        if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+          const dur = ytPlayer.getDuration();
+          if (dur > 0) {
+            // No line-level timestamps exist for pasted lyrics, so this is only ever
+            // a coarse approximation: scroll position tracks song-progress ratio,
+            // biased by the user's own Scroll Speed slider since the pace will drift.
+            const ratio = Math.min(1, (ytPlayer.getCurrentTime() / dur) * (val('sLyricsSpeed') / 100));
+            const maxScroll = lyricsDisplay.scrollHeight - lyricsDisplay.clientHeight;
+            lyricsDisplay.scrollTop = maxScroll * ratio;
+          }
+        }
+      } catch(_) {}
+    }
+    lyricsScrollRaf = requestAnimationFrame(lyricsScrollTick);
+  }
+  function ensureLyricsScrollLoop() {
+    if (lyricsScrollRaf == null && ytPlayer && !lyricsEditing && lyricsSection.classList.contains('show')) {
+      lyricsScrollRaf = requestAnimationFrame(lyricsScrollTick);
+    }
+  }
 
   // ── AudioWorklet noise gate ─────────────────────────────────────────────────
   const GATE_SRC = `
