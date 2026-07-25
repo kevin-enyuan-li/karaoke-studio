@@ -167,6 +167,17 @@
 
     footer { text-align: center; color: var(--muted); font-size: .76rem; padding: 10px 0 4px; line-height: 1.5; }
 
+    /* Focus mode: hide everything but the player, lyrics, and the mic controls that
+       matter mid-performance — CSS-only, not the real Fullscreen API (which doesn't
+       cooperate with a cross-origin YouTube iframe's own fullscreen button). */
+    .container.focus-mode header,
+    .container.focus-mode #backingTrackSection,
+    .container.focus-mode #fxSection,
+    .container.focus-mode footer,
+    .container.focus-mode #micSection .device-row,
+    .container.focus-mode #micSection .check-row { display: none; }
+    .container.focus-mode .lyrics-display { max-height: 55vh; }
+
     @media (max-width: 500px) { .fx-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -182,7 +193,7 @@
   </div>
 
   <!-- Load by link -->
-  <section>
+  <section id="backingTrackSection">
     <h2>Backing Track</h2>
     <div class="panel">
       <div class="link-row">
@@ -221,6 +232,7 @@
       <div class="yt-now-playing" id="ytNowPlaying"></div>
       <button class="btn-monitor" id="btnFavorite" title="Save this track to Favorites">☆</button>
       <button class="btn" id="btnToggleLyrics">📝 Lyrics</button>
+      <button class="btn-monitor" id="btnFocusMode" title="Hide search/effects for a distraction-free view">⛶ Focus</button>
       <button class="btn" id="btnClosePlayer">✕ Close</button>
     </div>
     <div class="mic-row" style="margin-top:8px">
@@ -260,7 +272,7 @@
   </section>
 
   <!-- Mic -->
-  <section>
+  <section id="micSection">
     <h2>Microphone</h2>
     <div class="panel">
       <div class="device-row">
@@ -471,6 +483,7 @@
   const ytPlayerWrap = $('ytPlayerWrap');
   const ytNowPlaying = $('ytNowPlaying');
   const btnFavorite  = $('btnFavorite');
+  const btnFocusMode = $('btnFocusMode');
   const btnClosePlayer = $('btnClosePlayer');
   const sYtVolume     = $('sYtVolume');
   const vYtVolume     = $('vYtVolume');
@@ -754,6 +767,13 @@
     if (ytPlayer && ytPlayer.stopVideo) { try { ytPlayer.stopVideo(); } catch(_) {} }
     ytPlayerWrap.classList.remove('show');
     ytNowPlaying.textContent = '';
+  });
+
+  const focusContainer = document.querySelector('.container');
+  btnFocusMode.addEventListener('click', () => {
+    const on = focusContainer.classList.toggle('focus-mode');
+    btnFocusMode.classList.toggle('bypass-on', on);
+    btnFocusMode.textContent = on ? '⛶ Exit Focus' : '⛶ Focus';
   });
 
   // ── Backing track volume ─────────────────────────────────────────────────
