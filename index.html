@@ -900,6 +900,34 @@
     }
   }
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // Space = play/pause, ←/→ = seek 5s. Ignored while typing in a form field (this
+  // also covers the lyrics textarea and every effect slider, whose own arrow-key
+  // nudging must keep working) or with a modifier held.
+  document.addEventListener('keydown', e => {
+    if (!ytPlayer) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(input|select|textarea)$/i.test(e.target.tagName)) return;
+
+    switch (e.code) {
+      case 'Space':
+        e.preventDefault();
+        try {
+          if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) ytPlayer.pauseVideo();
+          else ytPlayer.playVideo();
+        } catch(_) {}
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        try { ytPlayer.seekTo(Math.max(0, ytPlayer.getCurrentTime() - 5), true); } catch(_) {}
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        try { ytPlayer.seekTo(ytPlayer.getCurrentTime() + 5, true); } catch(_) {}
+        break;
+    }
+  });
+
   // ── AudioWorklet noise gate ─────────────────────────────────────────────────
   const GATE_SRC = `
 class NoiseGate extends AudioWorkletProcessor {
