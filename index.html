@@ -75,6 +75,8 @@
     .yt-card .yt-title { font-size: .82rem; font-weight: 600; line-height: 1.3;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .yt-card .yt-channel { font-size: .74rem; color: var(--muted); margin-top: 3px; }
+    .yt-recent-favs-label { font-size: .74rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .06em; margin-top: 12px; margin-bottom: 4px; }
 
     /* Player */
     .yt-player-wrap { display: none; margin-bottom: 18px; }
@@ -195,6 +197,8 @@
       </div>
       <label class="karaoke-only"><input type="checkbox" id="cKaraokeOnly" checked> Append &quot;karaoke&quot; to search</label>
 
+      <div class="yt-recent-favs" id="ytRecentFavs"></div>
+
       <div class="yt-settings" id="ytSettingsPanel">
         <p>Searching needs a free YouTube Data API v3 key (only used for search — playback never needs one).
           <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Get a key here</a>,
@@ -215,6 +219,7 @@
     <div class="yt-player-box"><div id="ytPlayer"></div></div>
     <div class="yt-now-row">
       <div class="yt-now-playing" id="ytNowPlaying"></div>
+      <button class="btn-monitor" id="btnFavorite" title="Save this track to Favorites">☆</button>
       <button class="btn" id="btnToggleLyrics">📝 Lyrics</button>
       <button class="btn" id="btnClosePlayer">✕ Close</button>
     </div>
@@ -461,9 +466,11 @@
   const ytApiKeyInput   = $('ytApiKey');
   const btnSaveYtKey    = $('btnSaveYtKey');
   const ytResults    = $('ytResults');
+  const ytRecentFavs = $('ytRecentFavs');
   const ytStatusEl   = $('ytStatus');
   const ytPlayerWrap = $('ytPlayerWrap');
   const ytNowPlaying = $('ytNowPlaying');
+  const btnFavorite  = $('btnFavorite');
   const btnClosePlayer = $('btnClosePlayer');
   const sYtVolume     = $('sYtVolume');
   const vYtVolume     = $('vYtVolume');
@@ -514,11 +521,33 @@
     return null;
   }
 
-  btnLoadUrl.addEventListener('click', () => {
+  // youtube.com/oembed is a public, key-less endpoint — used only to recover a real
+  // title for videos loaded by raw link/ID, where (unlike a search result) we're never
+  // given one. Without this, every direct-link load would show up in Recent/Favorites
+  // labeled with the generic placeholder instead of the actual song title.
+  async function resolveVideoTitle(videoId, fallbackTitle) {
+    try {
+      const url = `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.title) return data.title;
+      }
+    } catch(_) {}
+    return fallbackTitle;
+  }
+
+  btnLoadUrl.addEventListener('click', async () => {
     const id = extractVideoId(ytUrlInput.value);
     if (!id) { setYtStatus('Could not read a video ID from that — paste a full YouTube link or an 11-character video ID.', 'err'); return; }
     setYtStatus('');
-    loadVideo(id, 'Loaded from link');
+    loadVideo(id, 'Loading…');
+    const title = await resolveVideoTitle(id, 'Loaded from link');
+    if (currentVideoId === id) { // guard: user may have loaded something else while this was in flight
+      ytNowPlaying.textContent = title;
+      pushRecent(id, title);
+      renderRecentFavorites();
+    }
   });
   ytUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnLoadUrl.click(); });
 
@@ -584,6 +613,72 @@
     loadVideo(card.dataset.id, card.dataset.title);
   });
 
+  // ── Recent tracks / favorites ────────────────────────────────────────────
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  const RECENT_KEY = 'ks_recent_v1';
+  const FAVORITES_KEY = 'ks_favorites_v1';
+  const RECENT_MAX = 15;
+  function loadList(key) { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(_) { return []; } }
+  function saveList(key, list) { try { localStorage.setItem(key, JSON.stringify(list)); } catch(_) {} }
+
+  function pushRecent(id, title) {
+    let list = loadList(RECENT_KEY).filter(it => it.id !== id);
+    list.unshift({ id, title });
+    saveList(RECENT_KEY, list.slice(0, RECENT_MAX));
+  }
+  function isFavorite(id) { return loadList(FAVORITES_KEY).some(it => it.id === id); }
+  function toggleFavorite(id, title) {
+    let list = loadList(FAVORITES_KEY);
+    list = list.some(it => it.id === id) ? list.filter(it => it.id !== id) : [{ id, title }, ...list];
+    saveList(FAVORITES_KEY, list);
+  }
+
+  function updateFavoriteBtn() {
+    const fav = !!(currentVideoId && isFavorite(currentVideoId));
+    btnFavorite.textContent = fav ? '★' : '☆';
+    btnFavorite.classList.toggle('bypass-on', fav);
+  }
+  btnFavorite.addEventListener('click', () => {
+    if (!currentVideoId) return;
+    toggleFavorite(currentVideoId, ytNowPlaying.textContent || currentVideoId);
+    updateFavoriteBtn();
+    renderRecentFavorites();
+  });
+
+  function ytCardHtml(id, title, starred) {
+    const safeTitle = escapeHtml(title);
+    return `<div class="yt-card" data-id="${id}" data-title="${safeTitle}">
+      <img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" alt="" loading="lazy">
+      <div class="yt-meta"><div class="yt-title">${starred ? '★ ' : ''}${safeTitle}</div></div>
+    </div>`;
+  }
+
+  function renderRecentFavorites() {
+    const favs = loadList(FAVORITES_KEY);
+    const favIds = new Set(favs.map(f => f.id));
+    const recents = loadList(RECENT_KEY).filter(r => !favIds.has(r.id));
+    if (!favs.length && !recents.length) { ytRecentFavs.innerHTML = ''; return; }
+    let html = '';
+    if (favs.length) {
+      html += '<div class="yt-recent-favs-label">⭐ Favorites</div><div class="yt-results">' +
+        favs.map(it => ytCardHtml(it.id, it.title, true)).join('') + '</div>';
+    }
+    if (recents.length) {
+      html += '<div class="yt-recent-favs-label">🕘 Recent</div><div class="yt-results">' +
+        recents.map(it => ytCardHtml(it.id, it.title, false)).join('') + '</div>';
+    }
+    ytRecentFavs.innerHTML = html;
+  }
+  ytRecentFavs.addEventListener('click', e => {
+    const card = e.target.closest('.yt-card');
+    if (!card) return;
+    loadVideo(card.dataset.id, card.dataset.title);
+  });
+  renderRecentFavorites();
+
   // ── YouTube IFrame Player ────────────────────────────────────────────────
   let ytApiReady = false;
   let ytPlayer = null;
@@ -610,7 +705,13 @@
     ytPlayerWrap.classList.add('show');
     ytNowPlaying.textContent = title || '';
     ytPlayerWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    if (currentVideoId !== videoId) { currentVideoId = videoId; loadLyricsForCurrentVideo(); }
+    if (currentVideoId !== videoId) {
+      currentVideoId = videoId;
+      loadLyricsForCurrentVideo();
+      pushRecent(videoId, title || videoId);
+      updateFavoriteBtn();
+      renderRecentFavorites();
+    }
     if (!ytApiReady || typeof YT === 'undefined' || !YT.Player) {
       setTimeout(() => loadVideo(videoId, title), 300);
       return;
