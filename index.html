@@ -92,6 +92,8 @@
       color: var(--muted); flex-wrap: wrap; margin-bottom: 10px; }
     .device-row select { max-width: 220px; background: var(--bg); color: var(--text);
       border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: .78rem; }
+    .mic-row select { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 8px; font-size: .78rem; }
     .check-row { display: flex; align-items: center; gap: 6px; font-size: .8rem;
       color: var(--muted); margin-bottom: 10px; }
     .mic-controls { display: none; flex-direction: column; gap: 12px; margin-top: 10px;
@@ -221,6 +223,17 @@
       <input type="range" class="sl" id="sYtVolume" min="0" max="100" value="100">
       <span class="sl-val" id="vYtVolume">100%</span>
       <button class="btn-monitor" id="btnYtMute" title="Mute the backing track">🔊</button>
+      <span class="sl-label" style="width:auto">🐢 Speed</span>
+      <select id="selYtSpeed" title="Backing track playback speed">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="1.75">1.75×</option>
+        <option value="2">2×</option>
+      </select>
     </div>
   </div>
 
@@ -455,6 +468,7 @@
   const sYtVolume     = $('sYtVolume');
   const vYtVolume     = $('vYtVolume');
   const btnYtMute     = $('btnYtMute');
+  const selYtSpeed    = $('selYtSpeed');
 
   const btnToggleLyrics    = $('btnToggleLyrics');
   const lyricsSection      = $('lyricsSection');
@@ -611,7 +625,15 @@
           // A freshly-created player instance starts at YouTube's own default
           // volume (100, unmuted) regardless of what the slider shows — sync it
           // to our saved preference as soon as the player is actually ready.
-          onReady: () => { applyYtVolume(); },
+          onReady: () => { applyYtVolume(); applyYtSpeed(); },
+          // Fires asynchronously once the player actually confirms a rate — reflects
+          // both our own requests and any clamping YouTube applies for this specific
+          // video, and (as a bonus) stays in sync if the rate is changed from
+          // YouTube's own native settings gear inside the embedded player too.
+          onPlaybackRateChange: (e) => {
+            const rate = e.data;
+            if (rate && String(rate) !== selYtSpeed.value) selYtSpeed.value = String(rate);
+          },
           onError: (e) => {
             // https://developers.google.com/youtube/iframe_api_reference#onError
             const messages = {
@@ -669,6 +691,26 @@
     updateMuteBtn();
     if (ytPlayer) { try { ytMuted ? ytPlayer.mute() : ytPlayer.unMute(); } catch(_) {} }
     try { localStorage.setItem(YT_MUTED_KEY, ytMuted ? '1' : '0'); } catch(_) {}
+  });
+
+  // ── Backing track speed ──────────────────────────────────────────────────
+  const YT_RATE_KEY = 'ks_yt_rate_v1';
+  try {
+    const savedRate = localStorage.getItem(YT_RATE_KEY);
+    if (savedRate != null) selYtSpeed.value = savedRate;
+  } catch(_) {}
+
+  // YouTube silently clamps to whatever getAvailablePlaybackRates() supports for the
+  // specific video (not always the full standard set) — the onPlaybackRateChange
+  // handler above reflects whatever actually took once the player confirms it.
+  function applyYtSpeed() {
+    if (!ytPlayer || !ytPlayer.setPlaybackRate) return;
+    try { ytPlayer.setPlaybackRate(Number(selYtSpeed.value)); } catch(_) {}
+  }
+
+  selYtSpeed.addEventListener('change', () => {
+    try { localStorage.setItem(YT_RATE_KEY, selYtSpeed.value); } catch(_) {}
+    applyYtSpeed();
   });
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
