@@ -230,16 +230,16 @@
     <div class="yt-player-box"><div id="ytPlayer"></div></div>
     <div class="yt-now-row">
       <div class="yt-now-playing" id="ytNowPlaying"></div>
-      <button class="btn-monitor" id="btnFavorite" title="Save this track to Favorites">☆</button>
+      <button class="btn-monitor" id="btnFavorite" title="Save this track to Favorites" aria-label="Add to favorites" aria-pressed="false">☆</button>
       <button class="btn" id="btnToggleLyrics">📝 Lyrics</button>
-      <button class="btn-monitor" id="btnFocusMode" title="Hide search/effects for a distraction-free view">⛶ Focus</button>
+      <button class="btn-monitor" id="btnFocusMode" title="Hide search/effects for a distraction-free view" aria-pressed="false">⛶ Focus</button>
       <button class="btn" id="btnClosePlayer">✕ Close</button>
     </div>
     <div class="mic-row" style="margin-top:8px">
       <span class="sl-label" style="width:auto">🔊 Backing Track</span>
       <input type="range" class="sl" id="sYtVolume" min="0" max="100" value="100">
       <span class="sl-val" id="vYtVolume">100%</span>
-      <button class="btn-monitor" id="btnYtMute" title="Mute the backing track">🔊</button>
+      <button class="btn-monitor" id="btnYtMute" title="Mute the backing track" aria-label="Mute backing track" aria-pressed="false">🔊</button>
       <span class="sl-label" style="width:auto">🐢 Speed</span>
       <select id="selYtSpeed" title="Backing track playback speed">
         <option value="0.25">0.25×</option>
@@ -299,7 +299,7 @@
             <span class="sl-val" id="vInputGain">100%</span>
           </div>
           <button class="btn-monitor" id="btnMonitor" title="Cycle: Off → 🎙 Direct (min latency) → 🎛 Effects → Off">🔇 Monitor: Off</button>
-          <button class="btn-monitor" id="btnBypass" title="A/B compare: dry mic vs fully-effected mic">🎧 Bypass</button>
+          <button class="btn-monitor" id="btnBypass" title="A/B compare: dry mic vs fully-effected mic" aria-pressed="false">🎧 Bypass</button>
         </div>
       </div>
       <div class="status" id="micStatus"></div>
@@ -653,6 +653,8 @@
     const fav = !!(currentVideoId && isFavorite(currentVideoId));
     btnFavorite.textContent = fav ? '★' : '☆';
     btnFavorite.classList.toggle('bypass-on', fav);
+    btnFavorite.setAttribute('aria-pressed', String(fav));
+    btnFavorite.setAttribute('aria-label', fav ? 'Remove from favorites' : 'Add to favorites');
   }
   btnFavorite.addEventListener('click', () => {
     if (!currentVideoId) return;
@@ -774,6 +776,7 @@
     const on = focusContainer.classList.toggle('focus-mode');
     btnFocusMode.classList.toggle('bypass-on', on);
     btnFocusMode.textContent = on ? '⛶ Exit Focus' : '⛶ Focus';
+    btnFocusMode.setAttribute('aria-pressed', String(on));
   });
 
   // ── Backing track volume ─────────────────────────────────────────────────
@@ -790,6 +793,8 @@
   function updateMuteBtn() {
     btnYtMute.textContent = ytMuted ? '🔇' : '🔊';
     btnYtMute.classList.toggle('bypass-on', ytMuted);
+    btnYtMute.setAttribute('aria-pressed', String(ytMuted));
+    btnYtMute.setAttribute('aria-label', ytMuted ? 'Unmute backing track' : 'Mute backing track');
   }
   updateMuteBtn();
 
@@ -1326,6 +1331,7 @@ registerProcessor('noise-gate', NoiseGate);
     bypassOn = !bypassOn;
     btnBypass.classList.toggle('bypass-on', bypassOn);
     btnBypass.textContent = bypassOn ? '🎧 Bypassed (Dry)' : '🎧 Bypass';
+    btnBypass.setAttribute('aria-pressed', String(bypassOn));
     if (monitorMode === 'effects') rebuildEffectsChain();
   });
 
